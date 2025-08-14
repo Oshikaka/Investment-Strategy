@@ -24,26 +24,37 @@ sentences = [
 # nlp() returns a list of dictionaries, each with 'label' and 'score'
 results = nlp(sentences)
 
-
 # Convert results to a DataFrame
 # The labels used by ProsusAI/finbert model are: positive, negative, neutral (lowercase)
-# The DataFrame will have columns: Sentence, Positive, Negative, Neutral
+# The DataFrame will have columns: Sentence, Positive, Negative, Neutral, Sentiment_Score
 # Note: The model outputs labels in lowercase, so we will capitalize them for consistency
 data = []
 for sentence, res in zip(sentences, results):
     row = {"Sentence": sentence}
+    
+    # Store individual probabilities
+    prob_dict = {}
     for item in res:  # item is dict: {'label': 'positive', 'score': 0.99}
         row[item['label'].capitalize()] = item['score']
+        prob_dict[item['label']] = item['score']
+    
+    # Calculate -10 to 10 sentiment score using the formula:
+    # score = (-10) * P_negative + 0 * P_neutral + 10 * P_positive
+    sentiment_score = (-10 * prob_dict['negative'] + 
+                      0 * prob_dict['neutral'] + 
+                      10 * prob_dict['positive'])
+    row['Sentiment_Score'] = round(sentiment_score, 2)
+    
     data.append(row)
 
 df = pd.DataFrame(data)
 print(df)
 # Example output:
-#                                             Sentence  Negative   Neutral  Positive
-# 0  there is a shortage of capital, and we need ex...  0.865358  0.105948  0.028694
-# 1   growth is strong and we have plenty of liquidity  0.010695  0.086726  0.902579
-# 2                there are doubts about our finances  0.426424  0.456974  0.116602
-# 3   Our company is broke, and we need to raise funds  0.915018  0.063115  0.021867
+#                                             Sentence  Negative   Neutral  Positive  Sentiment_Score
+# 0  there is a shortage of capital, and we need ex...  0.865358  0.105948  0.028694            -8.37
+# 1   growth is strong and we have plenty of liquidity  0.010695  0.086726  0.902579             8.96
+# 2                there are doubts about our finances  0.426424  0.456974  0.116602            -3.10
+# 3   Our company is broke, and we need to raise funds  0.915018  0.063115  0.021867            -8.93
 
 # Save the DataFrame to a CSV file
 # It can open in Excel or any spreadsheet software
