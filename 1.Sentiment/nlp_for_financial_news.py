@@ -24,6 +24,7 @@ sentences = [
 # nlp() returns a list of dictionaries, each with 'label' and 'score'
 results = nlp(sentences)
 
+
 # Convert results to a DataFrame
 # The labels used by ProsusAI/finbert model are: positive, negative, neutral (lowercase)
 # The DataFrame will have columns: Sentence, Positive, Negative, Neutral
@@ -45,4 +46,6 @@ print(df)
 # 3   Our company is broke, and we need to raise funds  0.915018  0.063115  0.021867
 
 # Save the DataFrame to a CSV file
-df.to_csv("financial_news_sentiment.csv", index=False)
+# It can open in Excel or any spreadsheet software
+file_name = "financial_news_sentiment.csv" # You can change the file name as needed
+df.to_csv(file_name, index=False)
