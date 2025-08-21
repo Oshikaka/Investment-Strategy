@@ -56,7 +56,13 @@ print(df)
 # 2                there are doubts about our finances  0.426424  0.456974  0.116602            -3.10
 # 3   Our company is broke, and we need to raise funds  0.915018  0.063115  0.021867            -8.93
 
-# Save the DataFrame to a CSV file
-# It can open in Excel or any spreadsheet software
-file_name = "financial_news_sentiment.csv" # You can change the file name as needed
-df.to_csv(file_name, index=False)
+
+# Save the DataFrame to an Excel file
+file_name = "financial_news_sentiment.xlsx" # You can change the file name as needed
+df.to_excel(file_name, index=False)
+
+print(f"\nResults saved to: {file_name}")
+print(f"\nSentiment Score Interpretation:")
+print("• Score near +10: Very positive financial news")
+print("• Score near 0: Neutral financial news")
+print("• Score near -10: Very negative financial news")
