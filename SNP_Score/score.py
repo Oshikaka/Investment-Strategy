@@ -1,131 +1,120 @@
 import pandas as pd
 import numpy as np
-from sklearn.linear_model import Lasso
+import matplotlib.pyplot as plt
+from sklearn.linear_model import LassoCV
 from sklearn.preprocessing import StandardScaler
 
-# ===================== Read data =====================
-# Load historical data from Excel file
-# You can specify sheet name with sheet_name parameter
-historical_df = pd.read_excel('historical_stock_data.xlsx', sheet_name=0)  
-
-# Load current data from a separate Excel file
-current_df = pd.read_excel('current_stock_data.xlsx', sheet_name=0)
-
-# Alternative: Read specific sheets by name
-# historical_df = pd.read_excel('historical_stock_data.xlsx', sheet_name='Historical')
-# current_df = pd.read_excel('current_stock_data.xlsx', sheet_name='Current')
-
-# Automatically identify feature columns (remove non-numeric columns)
-non_feature_cols = ['Period Ending']
-feature_cols = [col for col in historical_df.columns if col not in non_feature_cols]
-
-# Handle missing values
-historical_df[feature_cols] = historical_df[feature_cols].fillna(0)
-current_df[feature_cols] = current_df[feature_cols].fillna(0)
-
-# Filter historical data: rows starting with FY (if needed)
-if 'Period Ending' in historical_df.columns:
-    historical_df = historical_df[historical_df['Period Ending'].str.startswith('FY')].copy()
-
-print(f"Historical data shape: {historical_df.shape}")
-print(f"Current data shape: {current_df.shape}")
-print(f"Feature columns: {len(feature_cols)} features")
-
-# ===================== Choose target column =====================
-# choose the target column for SNP Score calculation
-target_col = 'Price gained'
-
-# ===================== Calculate SNP Score =====================
-def compute_snp_score(historical_df, current_df, feature_cols, target_col=target_col, alpha=0.1, score_scale=10):
+# ----------------------
+# Preprocessing Features
+# ----------------------
+def preprocess_features(df, drop_threshold=0.5):
     """
-    Compute SNP Score for current data based on historical data
-    
-    Parameters:
-    - historical_df: Historical training data
-    - current_df: Current data to predict
-    - feature_cols: List of feature column names
-    - target_col: Target variable name
-    - alpha: Lasso regularization parameter
-    - score_scale: Scale for the final score (0 to score_scale)
-    
-    Returns:
-    - current_df_with_score: Current data with SNP scores
-    - weights_dict: Feature weights from Lasso regression
+    process features: drop columns with too many missing values or low variance, fill missing values
     """
-    
-    # Check if target column exists in historical data
-    if target_col not in historical_df.columns:
-        raise ValueError(f"Target column '{target_col}' not found in historical data")
-    
-    # X is the feature matrix, y is the target variable
-    X = historical_df[feature_cols]
-    y = historical_df[target_col]
-    
-    print(f"Training on {len(X)} historical samples")
+    # Convert "-" to NaN
+    df = df.replace("-", np.nan)
 
-    # Standardize features
-    scaler = StandardScaler()
-    X_scaled = scaler.fit_transform(X)
+    # 1. Drop columns with too many missing values
+    df = df.dropna(thresh=len(df) * drop_threshold, axis=1)
 
-    # Lasso regression
-    lasso = Lasso(alpha=alpha)
-    lasso.fit(X_scaled, y)
+    # 2. Fill missing values using forward/backward fill (time series friendly)
+    df = df.fillna(method="ffill").fillna(method="bfill")
 
-    # Get feature weights
-    weights = lasso.coef_
-    weights_dict = {col: w for col, w in zip(feature_cols, weights)}
-    
-    # Transform current data using the same scaler
-    X_current = current_df[feature_cols]
-    X_current_scaled = scaler.transform(X_current)
+    # 3. Drop columns with low variance (essentially no information)
+    df = df.loc[:, df.var() > 1e-6]
 
-    # Calculate raw scores
-    raw_scores = X_current_scaled @ weights
-    
-    # Normalize scores to 0-score_scale range
-    if len(raw_scores) > 1:
-        scores_normalized = score_scale * (raw_scores - raw_scores.min()) / (raw_scores.max() - raw_scores.min())
-    else:
-        # If only one sample, use raw score
-        scores_normalized = raw_scores
-    
-    # Add scores to current dataframe
-    current_df_with_score = current_df.copy()
-    current_df_with_score['SNP_Score'] = scores_normalized
-    
-    return current_df_with_score, weights_dict
+    return df
 
-# Calculate SNP Score and weights
-try:
-    snp_df, snp_weights = compute_snp_score(historical_df, current_df, feature_cols, target_col)
-    
-    # Print results
-    print("\n" + "="*50)
-    print("FEATURE WEIGHTS (Lasso Regression):")
-    print("="*50)
-    for k, v in snp_weights.items():
-        if abs(v) > 0.001:  # Only show significant weights
-            print(f"{k:30}: {v:8.4f}")
-    
-    print("\n" + "="*50)
-    print("SNP SCORES FOR CURRENT DATA:")
-    print("="*50)
-    
-    # Display results with company names if available
-    if 'Company' in snp_df.columns:
-        result_cols = ['Company', 'SNP_Score']
-    elif 'Period Ending' in snp_df.columns:
-        result_cols = ['Period Ending', 'SNP_Score']
-    else:
-        result_cols = ['SNP_Score']
-    
-    print(snp_df[result_cols].to_string(index=False))
-    
-    # Save results to Excel
-    snp_df.to_excel('snp_scores_results.xlsx', index=False)
-    print(f"\nResults saved to 'snp_scores_results.xlsx'")
-    
-except Exception as e:
-    print(f"Error: {e}")
-    print("Please check your Excel files and column names.")
-    print("Make sure you have installed openpyxl: pip install openpyxl")
+# ----------------------
+# Read historical data
+# ----------------------
+historical = pd.read_excel("historical_stock_data.xlsx", na_values=["-"])
+
+X = historical.drop(columns=["Stock Name", "Period Ending", "Price Gained"])
+y = historical["Price Gained"]
+
+# Preprocess features
+X_clean = preprocess_features(X)
+
+# Standardize
+scaler = StandardScaler()
+X_scaled = scaler.fit_transform(X_clean)
+
+# ----------------------
+# Lasso Regression
+# ----------------------
+lasso = LassoCV(cv=5, random_state=42).fit(X_scaled, y)
+
+# Extract coefficients
+coef_df = pd.DataFrame({
+    "Feature": X_clean.columns,
+    "Weight": lasso.coef_
+}).sort_values(by="Weight", ascending=False)
+
+print("Lasso learned weights (non-zero):")
+print(coef_df[coef_df["Weight"] != 0])
+
+# ----------------------
+# Predict current data
+# ----------------------
+current = pd.read_excel("current_stock_data.xlsx", na_values=["-"])
+X_current = current.drop(columns=["Stock Name", "Period Ending"])
+
+# Apply the same preprocessing to current data (ensure consistent columns)
+X_current = X_current[X_clean.columns]   # Only keep columns that were in the training set
+X_current = preprocess_features(X_current)
+
+X_current_scaled = scaler.transform(X_current)
+
+pred_price_gain = lasso.predict(X_current_scaled)
+current["Predicted Price Gained"] = pred_price_gain
+
+# SNP Score (0–10 normalization)
+min_val, max_val = pred_price_gain.min(), pred_price_gain.max()
+current["SNP Score"] = 10 * (pred_price_gain - min_val) / (max_val - min_val)
+
+print(current[["Stock Name", "Predicted Price Gained", "SNP Score"]])
+
+# ----------------------
+# Visualization
+# ----------------------
+
+# Figure 1: Feature Importance (Lasso Weights), only non-zero weights!
+plt.figure(figsize=(12, 6))
+nz_coef = coef_df[coef_df["Weight"] != 0]
+plt.barh(nz_coef["Feature"], nz_coef["Weight"], color="skyblue")
+plt.axvline(0, color="black", linewidth=1)
+plt.title("Feature Importance (Lasso Weights)", fontsize=14)
+plt.xlabel("Weight")
+plt.ylabel("Feature")
+plt.tight_layout()
+plt.savefig("feature_importance_lasso.png") 
+
+# Figure 2: SNP Score Ranking
+plt.figure(figsize=(10, 6))
+current_sorted = current.sort_values("SNP Score", ascending=False)
+plt.bar(current_sorted["Stock Name"], current_sorted["SNP Score"], color="lightgreen")
+plt.title("SNP Score Ranking (0-10)", fontsize=14)
+plt.ylabel("SNP Score")
+plt.ylim(0, 10)
+plt.tight_layout()
+plt.savefig("snp_score_ranking.png")
+
+# ----------------------
+# Export Results into Excel
+# ----------------------
+current[["Stock Name", "Predicted Price Gained", "SNP Score"]].to_excel("snp_score_result.xlsx", index=False)
+print("Results exported to snp_score_result.xlsx")
+
+# Sample output:
+#   Stock Name  Predicted Price Gained  SNP Score
+# 0       NFLX                0.761320   7.671456
+# 1       NVDA                0.066773   0.566674
+# 2          V                0.128370   1.196778
+# 3        JNJ                0.077217   0.673506
+# 4       COST                0.314422   3.099971
+# 5       AMZN                0.209280   2.024430
+# 6      GOOGL                0.011376   0.000000
+# 7       MSFT                0.162609   1.547012
+# 8       TSLA                0.988954  10.000000
+# Results exported to snp_score_result.xlsx
