@@ -1,5 +1,7 @@
 # Investment-Strategy
-Before you use the code, make sure put the following instruction in the Terminal.
+1. Download `Visual Studio Code`.
+2. In `Terminal`, put `git clone https://github.com/Oshikaka/Investment-Strategy.git".
+3. Before you use the code, make sure put the following instruction in the Terminal.
 ```shell
 conda env create -f environment.yml
 ```
